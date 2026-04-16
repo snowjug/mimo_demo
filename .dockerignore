@@ -1,0 +1,9 @@
+node_modules
+npm-debug.log*
+.env
+.env.*
+mimo-backend/api/.env
+mimo-backend/api/.env.*
+mimo-backend/api/serviceAccountKey.json
+*firebase-adminsdk-*.json
+*.zip
