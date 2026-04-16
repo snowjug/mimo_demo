@@ -30,9 +30,15 @@ uvicorn printer_server:app --host 0.0.0.0 --port 8000
 ## Environment variables
 
 - `PRINTER_NAME`: optional CUPS queue name
+- `PRINTER_QUEUES`: comma-separated fallback queues for failover
 - `PRINT_TMP_DIR`: optional temp directory for saved PDF files
 - `PI_BIND_HOST`: optional host to bind the FastAPI server to
 - `PI_BIND_PORT`: optional port to bind the FastAPI server to
+- `TAILSCALE_AUTH_KEY`: optional auth key for unattended Tailscale setup
+
+## Scripts index
+
+See [scripts.md](scripts.md) for a file-by-file explanation of the Pi service, Tailscale setup, queue helper, watchdog, and systemd service.
 
 ## Production note
 
