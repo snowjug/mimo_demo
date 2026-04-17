@@ -772,21 +772,70 @@ app.post("/upload", authenticateToken, upload.array("files"), async (req, res) =
           userAgent: req.headers["user-agent"],
         })
       );
+
+      return {
+        jobId: jobRef.id,
+        fileName: file.originalname,
+      };
     });
 
-    await Promise.all(uploadPromises);
+    const queuedJobs = await Promise.all(uploadPromises);
 
-    const estimatedPages = req.files.length * 5;
-    const estimatedAmount = Number((estimatedPages * 2.3).toFixed(2));
+    // Convert newly uploaded files now so frontend gets accurate page totals.
+    await processPendingConversionsForUser(userId);
+
+    const results = [];
+    let totalPages = 0;
+    let totalAmount = 0;
+
+    for (const queuedJob of queuedJobs) {
+      const docSnap = await db.collection(COLLECTIONS.PRINT_JOBS).doc(queuedJob.jobId).get();
+      if (!docSnap.exists) {
+        results.push({
+          fileName: queuedJob.fileName,
+          status: "failed",
+          error: "Upload record not found",
+        });
+        continue;
+      }
+
+      const data = docSnap.data();
+      const pageCount = Number(data?.pageCount || data?.pricing?.totalPages || 0);
+      const amount = Number(data?.pricing?.finalAmount || pageCount * 2.3 || 0);
+
+      if (data.status === "pending") {
+        totalPages += pageCount;
+        totalAmount += amount;
+        results.push({
+          jobId: docSnap.id,
+          fileName: queuedJob.fileName,
+          status: "completed",
+          pageCount,
+          amount: Number(amount.toFixed(2)),
+          fileUrl: data.fileUrl || null,
+        });
+      } else {
+        results.push({
+          jobId: docSnap.id,
+          fileName: queuedJob.fileName,
+          status: "failed",
+          error: data.conversionError || "Conversion failed",
+        });
+      }
+    }
+
+    const completedCount = results.filter((r) => r.status === "completed").length;
+    const failedCount = results.length - completedCount;
 
     return res.json({
-      message: "Files queued for processing",
+      message: failedCount > 0 ? "Some files failed to process" : "Files uploaded and processed",
       filesUploaded: req.files.length,
-      estimatedPages,
-      estimatedAmount,
-      totalPages: estimatedPages,
-      amount: estimatedAmount,
-      status: "processing",
+      completedFiles: completedCount,
+      failedFiles: failedCount,
+      totalPages,
+      amount: Number(totalAmount.toFixed(2)),
+      status: failedCount > 0 ? "partial_success" : "ready",
+      files: results,
     });
   } catch (err) {
     console.error(err);

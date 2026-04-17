@@ -5,7 +5,8 @@ import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Avatar, AvatarFallback } from "../components/ui/avatar";
 import { MimoCoinsDisplay } from "../components/mimo-coins-display";
-import { Upload, FileText, X, Printer, CheckCircle, AlertCircle, History, Layers, Wallet } from "lucide-react";
+import { Upload, FileText, X, Printer, CheckCircle, AlertCircle, History, Layers, Wallet, Eye } from "lucide-react";
+import { toast } from "sonner";
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_API_URL || "http://localhost:3000";
 
@@ -17,10 +18,21 @@ const isAllowedFileType = (file: File) => {
 };
 
 interface UploadedFile {
+  id: string;
   name: string;
   size: number;
   status: "uploading" | "completed" | "failed";
   progress: number;
+  pageCount?: number;
+  error?: string;
+  previewUrl?: string;
+}
+
+interface UploadResultItem {
+  fileName: string;
+  status: "completed" | "failed";
+  pageCount?: number;
+  error?: string;
 }
 
 export function UploadFile() {
@@ -43,95 +55,93 @@ export function UploadFile() {
   }, []);
 
   const handleFileSelect = async (fileList: FileList | null) => {
-  if (!fileList) return;
+    if (!fileList) return;
 
-  const selectedFiles = Array.from(fileList).filter((file) => isAllowedFileType(file));
+    const selectedFiles = Array.from(fileList).filter((file) => isAllowedFileType(file));
 
-  if (selectedFiles.length === 0) {
-    return;
-  }
+    if (selectedFiles.length === 0) {
+      toast.error("Please upload PDF, DOC, DOCX, TXT, JPG, or PNG files only.");
+      return;
+    }
 
-  // keep your UI behavior
-  const newFiles: UploadedFile[] = selectedFiles.map((file) => ({
-    name: file.name,
-    size: file.size,
-    status: "uploading",
-    progress: 0,
-  }));
+    const newFiles: UploadedFile[] = selectedFiles.map((file) => ({
+      id: `${file.name}-${file.lastModified}-${Math.random().toString(36).slice(2)}`,
+      name: file.name,
+      size: file.size,
+      status: "uploading",
+      progress: 25,
+      previewUrl: URL.createObjectURL(file),
+    }));
 
-  setFiles((prev) => [...prev, ...newFiles]);
+    setFiles((prev) => [...prev, ...newFiles]);
 
-  try {
-    const formData = new FormData();
+    try {
+      const formData = new FormData();
+      selectedFiles.forEach((file) => {
+        formData.append("files", file);
+      });
 
-    selectedFiles.forEach((file) => {
-      formData.append("files", file); // ✅ matches backend
-    });
+      const token = localStorage.getItem("token");
 
-    const token = localStorage.getItem("token");
+      const res = await fetch(`${API_BASE_URL}/upload`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
 
-    const res = await fetch(`${API_BASE_URL}/upload`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`, // ✅ important
-      },
-      body: formData,
-    });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || "Upload failed");
+      }
 
-    const data = await res.json();
+      const normalizedSummary = {
+        ...data,
+        totalPages: data?.totalPages ?? data?.estimatedPages ?? 0,
+        amount: data?.amount ?? data?.estimatedAmount ?? 0,
+      };
 
-    if (!res.ok) throw new Error("Upload failed");
+      sessionStorage.setItem("printSummary", JSON.stringify(normalizedSummary));
 
-    // ✅ keep your animation effect
-    selectedFiles.forEach((_, index) => {
-      const actualIndex = files.length + index;
-      let progress = 0;
-
-      const interval = setInterval(() => {
-        progress += 20;
-
-        if (progress >= 100) {
-          clearInterval(interval);
-          setFiles((prev) =>
-            prev.map((f, i) =>
-              i === actualIndex
-                ? { ...f, status: "completed", progress: 100 }
-                : f
-            )
-          );
-        } else {
-          setFiles((prev) =>
-            prev.map((f, i) =>
-              i === actualIndex ? { ...f, progress } : f
-            )
-          );
+      const resultsByName = new Map<string, UploadResultItem>();
+      (data?.files || []).forEach((item: UploadResultItem) => {
+        if (!resultsByName.has(item.fileName)) {
+          resultsByName.set(item.fileName, item);
         }
-      }, 150);
-    });
+      });
 
-    // Normalize keys so downstream pages can rely on totalPages/amount.
-    const normalizedSummary = {
-      ...data,
-      totalPages: data?.totalPages ?? data?.estimatedPages ?? 0,
-      amount: data?.amount ?? data?.estimatedAmount ?? 0,
-    };
+      setFiles((prev) =>
+        prev.map((file) => {
+          const result = resultsByName.get(file.name);
+          if (!result) return file;
+          return {
+            ...file,
+            status: result.status,
+            progress: 100,
+            pageCount: result.pageCount,
+            error: result.error,
+          };
+        })
+      );
 
-    sessionStorage.setItem("printSummary", JSON.stringify(normalizedSummary));
-
-    console.log("UPLOAD SUCCESS:", normalizedSummary);
-
-  } catch (error) {
-    console.error(error);
-
-    setFiles((prev) =>
-      prev.map((f, i) =>
-        i >= prev.length - selectedFiles.length
-          ? { ...f, status: "failed" }
-          : f
-      )
-    );
-  }
-};
+      if (data?.failedFiles > 0) {
+        toast.error(`${data.failedFiles} file(s) failed to process. You can remove and retry those files.`);
+      } else {
+        toast.success("Files uploaded successfully.");
+      }
+    } catch (error) {
+      console.error(error);
+      setFiles((prev) =>
+        prev.map((file) =>
+          newFiles.some((newFile) => newFile.id === file.id)
+            ? { ...file, status: "failed", progress: 100, error: "Upload failed" }
+            : file
+        )
+      );
+      toast.error("Upload failed. Please try again.");
+    }
+  };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -140,7 +150,13 @@ export function UploadFile() {
   };
 
   const removeFile = (index: number) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+    setFiles((prev) => {
+      const toRemove = prev[index];
+      if (toRemove?.previewUrl) {
+        URL.revokeObjectURL(toRemove.previewUrl);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   };
 
   const formatFileSize = (bytes: number) => {
@@ -149,16 +165,34 @@ export function UploadFile() {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
-  const totalPages = files.filter((f) => f.status === "completed").length * 5; // Mock calculation
+  const totalPages = files
+    .filter((f) => f.status === "completed")
+    .reduce((sum, file) => sum + Number(file.pageCount || 0), 0);
 
   const handlePrint = () => {
-  sessionStorage.setItem(
-    "printFiles",
-    JSON.stringify(files.filter((f) => f.status === "completed"))
-  );
+    const completedFiles = files.filter((f) => f.status === "completed");
+    if (completedFiles.length === 0) {
+      toast.error("No completed files available for printing.");
+      return;
+    }
 
-  navigate("/print-options");
-};
+    sessionStorage.setItem("printFiles", JSON.stringify(completedFiles));
+    navigate("/print-options");
+  };
+
+  const canPreview = (fileName: string) => {
+    const ext = fileName.split(".").pop()?.toLowerCase();
+    return ["pdf", "jpg", "jpeg", "png", "txt"].includes(ext || "");
+  };
+
+  const handlePreview = (file: UploadedFile) => {
+    if (!file.previewUrl) return;
+    if (!canPreview(file.name)) {
+      toast.error("Preview is available for PDF, TXT, and image files.");
+      return;
+    }
+    window.open(file.previewUrl, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <div className="min-h-[100dvh] w-full bg-slate-50/50 p-2 sm:p-4">
@@ -346,7 +380,7 @@ export function UploadFile() {
                         <p className="text-sm font-medium truncate">{file.name}</p>
                         {file.status === "completed" && (
                           <Badge variant="secondary" className="bg-indigo-50 text-indigo-700 whitespace-nowrap text-[10px] sm:text-xs">
-                            ~{file.size > 2000000 ? Math.floor(file.size / 500000) : 1} pgs
+                            {file.pageCount || 0} pgs
                           </Badge>
                         )}
                         {file.status === "failed" && (
@@ -357,6 +391,7 @@ export function UploadFile() {
                         )}
                       </div>
                       <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
+                      {file.error && <p className="text-xs text-red-500 mt-1">{file.error}</p>}
                       {file.status === "uploading" && (
                         <div className="w-full bg-gray-100 rounded-full h-1.5 mt-3 overflow-hidden">
                           <div
@@ -366,29 +401,55 @@ export function UploadFile() {
                         </div>
                       )}
                     </div>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="opacity-100 transition-opacity hover:bg-red-50 hover:text-red-500 hover:border-red-200"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeFile(index);
-                      }}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="opacity-100 transition-opacity hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePreview(file);
+                        }}
+                        disabled={!canPreview(file.name)}
+                        title={canPreview(file.name) ? "Preview file" : "Preview available for PDF, TXT, and images"}
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="opacity-100 transition-opacity hover:bg-red-50 hover:text-red-500 hover:border-red-200"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeFile(index);
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
               <div className="flex flex-col sm:flex-row gap-2 mt-4">
                 <Button
                   className="flex-1 h-12 text-lg bg-gradient-to-r from-[#093765] to-blue-700 hover:from-[#052345] hover:to-blue-800 text-white shadow-lg shadow-blue-900/20 transition-all duration-300 rounded-xl"
-                  disabled={files.length === 0 || files.some((f) => f.status === "uploading")}
+                  disabled={files.filter((f) => f.status === "completed").length === 0 || files.some((f) => f.status === "uploading")}
                   onClick={handlePrint}
                 >
                   Continue ({files.filter((f) => f.status === "completed").length} file{files.filter((f) => f.status === "completed").length !== 1 ? "s" : ""})
                 </Button>
-                <Button variant="outline" className="h-12 px-6 rounded-xl hover:bg-gray-100" onClick={() => setFiles([])}>
+                <Button
+                  variant="outline"
+                  className="h-12 px-6 rounded-xl hover:bg-gray-100"
+                  onClick={() => {
+                    files.forEach((file) => {
+                      if (file.previewUrl) {
+                        URL.revokeObjectURL(file.previewUrl);
+                      }
+                    });
+                    setFiles([]);
+                  }}
+                >
                   Clear All
                 </Button>
               </div>

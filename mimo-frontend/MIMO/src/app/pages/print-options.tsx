@@ -12,6 +12,8 @@ import { ArrowLeft, FileText, Minus, Plus, Eye } from "lucide-react";
 interface UploadedFile {
   name: string;
   size: number;
+  pageCount?: number;
+  previewUrl?: string;
 }
 
 export function PrintOptions() {
@@ -168,12 +170,27 @@ export function PrintOptions() {
                 <CardTitle>Document Preview</CardTitle>
               </CardHeader>
               <CardContent>
-                {files.map((file, index) => (
-                  <div key={index} className="flex justify-between">
-                    <p>{file.name}</p>
-                    <p>~{Math.ceil(totalPages / files.length) || 0} pages</p>
-                  </div>
-                ))}
+                {files.map((file, index) => {
+                  const ext = file.name.split(".").pop()?.toLowerCase() || "";
+                  const canPreview = ["pdf", "jpg", "jpeg", "png", "txt"].includes(ext) && !!file.previewUrl;
+                  return (
+                    <div key={index} className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate">{file.name}</p>
+                        <p className="text-xs text-slate-500">{file.pageCount || 0} pages</p>
+                      </div>
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        disabled={!canPreview}
+                        onClick={() => canPreview && window.open(file.previewUrl, "_blank", "noopener,noreferrer")}
+                        title={canPreview ? "Preview file" : "Preview available for PDF, TXT, and images"}
+                      >
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  );
+                })}
               </CardContent>
             </Card>
 

@@ -103,15 +103,25 @@ export function Payment() {
       },
     });
 
-    const text = await res.text(); // 👈 handle non-json safely
+    const text = await res.text();
 
     if (!res.ok) {
       console.error("Create order error:", text);
-      toast.error("Order creation failed");
+      if (text.toLowerCase().includes("no pending jobs")) {
+        toast.error("No processed files are ready for payment. Please re-upload failed files.");
+      } else {
+        toast.error("Order creation failed");
+      }
       return;
     }
 
-    const data = JSON.parse(text);
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (_err) {
+      toast.error("Invalid response from server while creating order");
+      return;
+    }
 
     // 🔹 2. Load Cashfree SDK
     const cashfree = await load({ mode: "sandbox" });
