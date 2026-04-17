@@ -595,6 +595,8 @@ app.post("/upload", authenticateToken, upload.array("files"), async (req, res) =
       filesUploaded: req.files.length,
       estimatedPages,
       estimatedAmount,
+      totalPages: estimatedPages,
+      amount: estimatedAmount,
       status: "processing",
     });
   } catch (err) {
@@ -663,18 +665,33 @@ const processPendingConversionsForUser = async (userId) => {
     .collection("printJobs")
     .where("userId", "==", userId)
     .where("status", "==", "pending_conversion")
-    .where("isConverting", "!=", true)  // FIX: Skip if already converting (prevents race condition)
     .get();
 
   for (let doc of jobs.docs) {
-    const jobData = doc.data();
-    try {
-      // FIX: Set converting flag to prevent concurrent processing
-      await doc.ref.update({
+    const jobData = await db.runTransaction(async (transaction) => {
+      const latest = await transaction.get(doc.ref);
+      if (!latest.exists) {
+        return null;
+      }
+
+      const latestData = latest.data();
+      if (latestData.status !== "pending_conversion" || latestData.isConverting) {
+        return null;
+      }
+
+      transaction.update(doc.ref, {
         isConverting: true,
         conversionStartedAt: new Date(),
       });
 
+      return latestData;
+    });
+
+    if (!jobData) {
+      continue;
+    }
+
+    try {
       const sourceFilePath = jobData.fileUrl.split(`${bucket.name}/`)[1];
       const sourceFile = bucket.file(sourceFilePath);
       const [fileBuffer] = await withTimeout(sourceFile.download(), 30000, "File download");

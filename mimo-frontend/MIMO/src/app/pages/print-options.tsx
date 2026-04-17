@@ -40,7 +40,12 @@ export function PrintOptions() {
     }
 
     setFiles(JSON.parse(storedFiles));
-    setBackendSummary(JSON.parse(summary));
+
+    const parsedSummary = JSON.parse(summary);
+    setBackendSummary({
+      totalPages: parsedSummary?.totalPages ?? parsedSummary?.estimatedPages ?? 0,
+      amount: parsedSummary?.amount ?? parsedSummary?.estimatedAmount ?? 0,
+    });
   }, [navigate]);
 
   // ✅ REAL DATA FROM BACKEND

@@ -109,10 +109,16 @@ export function UploadFile() {
       }, 150);
     });
 
-    // ✅ store backend response
-    sessionStorage.setItem("printSummary", JSON.stringify(data));
+    // Normalize keys so downstream pages can rely on totalPages/amount.
+    const normalizedSummary = {
+      ...data,
+      totalPages: data?.totalPages ?? data?.estimatedPages ?? 0,
+      amount: data?.amount ?? data?.estimatedAmount ?? 0,
+    };
 
-    console.log("UPLOAD SUCCESS:", data);
+    sessionStorage.setItem("printSummary", JSON.stringify(normalizedSummary));
+
+    console.log("UPLOAD SUCCESS:", normalizedSummary);
 
   } catch (error) {
     console.error(error);
