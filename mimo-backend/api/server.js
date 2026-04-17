@@ -644,10 +644,56 @@ app.post("/internal/process-conversions", async (_req, res) => {
   }
 });
 
+// ================= HELPER: PROCESS ALL PENDING CONVERSIONS FOR USER =================
+const processPendingConversionsForUser = async (userId) => {
+  const jobs = await db
+    .collection("printJobs")
+    .where("userId", "==", userId)
+    .where("status", "==", "pending_conversion")
+    .get();
+
+  for (let doc of jobs.docs) {
+    const jobData = doc.data();
+    try {
+      const sourceFilePath = jobData.fileUrl.split(`${bucket.name}/`)[1];
+      const sourceFile = bucket.file(sourceFilePath);
+      const [fileBuffer] = await withTimeout(sourceFile.download(), 30000, "File download");
+
+      const { pdfBuffer, outputFileName } = await withTimeout(
+        convertFileToPdf({ originalname: jobData.sourceFileName, buffer: fileBuffer }),
+        60000,
+        "PDF conversion"
+      );
+
+      const pageCount = await getPageCount(pdfBuffer);
+      const convertedFileName = `converted/${Date.now()}_${doc.id}.pdf`;
+      const convertedFile = bucket.file(convertedFileName);
+      await convertedFile.save(pdfBuffer);
+
+      await doc.ref.update({
+        fileName: outputFileName,
+        pageCount,
+        fileUrl: `gs://${bucket.name}/${convertedFileName}`,
+        status: "pending",
+        conversionCompletedAt: new Date(),
+      });
+    } catch (conversionErr) {
+      await doc.ref.update({
+        status: "conversion_failed",
+        conversionError: conversionErr.message,
+        failedAt: new Date(),
+      });
+    }
+  }
+};
+
 // ================= CREATE ORDER =================
 app.post("/create-order", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+
+    // 🔹 AUTO-PROCESS any pending conversions for this user before creating order
+    await processPendingConversionsForUser(userId);
 
     const jobsSnapshot = await db
       .collection("printJobs")
