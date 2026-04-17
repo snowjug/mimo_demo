@@ -35,6 +35,76 @@ interface UploadResultItem {
   error?: string;
 }
 
+const uploadWithProgress = (
+  apiBaseUrl: string,
+  token: string | null,
+  formData: FormData,
+  pendingFileIds: string[],
+  selectedFiles: File[],
+  setFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>
+) =>
+  new Promise<any>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${apiBaseUrl}/upload`);
+
+    if (token) {
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
+
+    const totalBytes = Math.max(
+      1,
+      selectedFiles.reduce((sum, file) => sum + Math.max(1, file.size), 0)
+    );
+
+    let offset = 0;
+    const progressRange = new Map<string, { start: number; end: number }>();
+    pendingFileIds.forEach((id, index) => {
+      const fileBytes = Math.max(1, selectedFiles[index]?.size || 1);
+      const start = (offset / totalBytes) * 100;
+      offset += fileBytes;
+      const end = (offset / totalBytes) * 100;
+      progressRange.set(id, { start, end });
+    });
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) return;
+      const overall = (event.loaded / event.total) * 100;
+
+      setFiles((prev) =>
+        prev.map((file) => {
+          const range = progressRange.get(file.id);
+          if (!range) return file;
+
+          const normalized = Math.max(0, Math.min(1, (overall - range.start) / Math.max(1, range.end - range.start)));
+          const mapped = Math.round(normalized * 95);
+          return {
+            ...file,
+            progress: Math.max(file.progress, mapped),
+          };
+        })
+      );
+    };
+
+    xhr.onload = () => {
+      let parsed: any = null;
+      try {
+        parsed = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch (_err) {
+        reject(new Error("Invalid server response"));
+        return;
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(parsed);
+      } else {
+        reject(new Error(parsed?.error || parsed?.message || "Upload failed"));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Network error during upload"));
+    xhr.send(formData);
+  });
+
 export function UploadFile() {
   const navigate = useNavigate();
   const [files, setFiles] = useState<UploadedFile[]>([]);
@@ -83,18 +153,14 @@ export function UploadFile() {
 
       const token = localStorage.getItem("token");
 
-      const res = await fetch(`${API_BASE_URL}/upload`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data?.error || "Upload failed");
-      }
+      const data = await uploadWithProgress(
+        API_BASE_URL,
+        token,
+        formData,
+        newFiles.map((file) => file.id),
+        selectedFiles,
+        setFiles
+      );
 
       const normalizedSummary = {
         ...data,

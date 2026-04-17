@@ -36,6 +36,38 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const routeAfterAuth = async (jwtToken: string, fallbackName?: string) => {
+    localStorage.setItem("token", jwtToken);
+
+    // If backend already gave a user name (e.g., Google), use it immediately.
+    if (fallbackName && fallbackName.trim()) {
+      localStorage.setItem("mimo_user_name", fallbackName.trim());
+      navigate("/upload");
+      return;
+    }
+
+    try {
+      const userRes = await fetch(`${API_URL}/mimo/user`, {
+        headers: { Authorization: `Bearer ${jwtToken}` },
+      });
+
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        const resolvedName = userData?.name?.trim?.();
+        if (resolvedName) {
+          localStorage.setItem("mimo_user_name", resolvedName);
+          navigate("/upload");
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch user profile after login:", err);
+    }
+
+    // Only ask for onboarding if name truly isn't available.
+    navigate("/onboarding");
+  };
+
   // ================= NORMAL LOGIN / SIGNUP =================
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -78,10 +110,8 @@ export function Login() {
 
         if (!res.ok) throw new Error(data);
 
-        localStorage.setItem("token", data.jwtToken);
-
         toast.success("Signed in successfully!");
-        navigate("/onboarding");
+        await routeAfterAuth(data.jwtToken);
       }
     } catch (err: any) {
       toast.error(err.message || (isSignup ? "Signup failed" : "Login failed"));
@@ -107,10 +137,8 @@ export function Login() {
 
       if (!res.ok) throw new Error("Google login failed");
 
-      localStorage.setItem("token", data.jwtToken);
-
       toast.success("Google login successful!");
-      navigate("/onboarding");
+      await routeAfterAuth(data.jwtToken, data.name);
     } catch {
       toast.error("Google login failed");
     }
