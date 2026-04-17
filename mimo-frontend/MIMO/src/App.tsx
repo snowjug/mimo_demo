@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Toaster } from "./app/components/ui/sonner";
 import { Login } from "./app/pages/login";
 import { UploadFile } from "./app/pages/upload-file";
@@ -29,6 +30,7 @@ export default function App() {
       </Routes>
       <Toaster />
       <Analytics />
+      <SpeedInsights />
     </BrowserRouter>
   );
 }
