@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
 import { Toaster } from "./app/components/ui/sonner";
 import { Login } from "./app/pages/login";
 import { UploadFile } from "./app/pages/upload-file";
@@ -27,6 +28,7 @@ export default function App() {
         <Route path="/history" element={<PrintHistory />} />
       </Routes>
       <Toaster />
+      <Analytics />
     </BrowserRouter>
   );
 }
