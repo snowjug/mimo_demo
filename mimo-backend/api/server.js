@@ -55,6 +55,47 @@ const downloadJobPdf = async (jobData) => {
   return fileBuffer;
 };
 
+const pdfCache = new Map();
+const PDF_CACHE_TTL = 15 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of pdfCache.entries()) {
+    if (value.expiry < now) {
+      pdfCache.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+const cacheJobPdf = (pin, buffer) => {
+  pdfCache.set(pin, {
+    buffer,
+    expiry: Date.now() + PDF_CACHE_TTL,
+  });
+};
+
+const getCachedJobPdf = (pin) => {
+  const cached = pdfCache.get(pin);
+  if (!cached) return null;
+  if (cached.expiry < Date.now()) {
+    pdfCache.delete(pin);
+    return null;
+  }
+  return cached.buffer;
+};
+
+const withTimeout = (promise, ms, label = "Operation") => {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`${label} timeout after ${ms}ms`));
+      }, ms);
+      promise.finally(() => clearTimeout(timer));
+    }),
+  ]);
+};
+
 const convertFileToPdf = async (file) => {
   const originalName = file.originalname || "upload";
   const ext = path.extname(originalName).toLowerCase();
@@ -455,6 +496,28 @@ app.post("/payment-success", authenticateToken, async (req, res) => {
       printCode: pin,
     });
 
+    setImmediate(async () => {
+      try {
+        const paidJobs = await db
+          .collection("printJobs")
+          .where("userId", "==", userId)
+          .where("pin", "==", pin)
+          .get();
+
+        for (const jobDoc of paidJobs.docs) {
+          const jobData = jobDoc.data();
+          try {
+            const pdfBuffer = await withTimeout(downloadJobPdf(jobData), 10000, "PDF prefetch");
+            cacheJobPdf(pin, pdfBuffer);
+          } catch (prefetchErr) {
+            console.warn(`Failed to prefetch PDF for PIN ${pin}:`, prefetchErr.message);
+          }
+        }
+      } catch (prefetchErr) {
+        console.warn("Failed to prefetch PDFs:", prefetchErr.message);
+      }
+    });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Payment update failed" });
@@ -486,31 +549,98 @@ app.post("/upload", authenticateToken, upload.array("files"), async (req, res) =
       await doc.ref.delete();
     }
 
-    let totalPages = 0;
-    for (let file of req.files) {
-      const { pdfBuffer, outputFileName } = await convertFileToPdf(file);
-      const pages = await getPageCount(pdfBuffer);
-      totalPages += pages;
-      const fileUrl = await uploadToStorage({
-        originalname: outputFileName,
-        buffer: pdfBuffer,
-      });
-      await db.collection("printJobs").add({
-        userId,
-        fileName: outputFileName,
-        sourceFileName: file.originalname,
-        fileUrl,
-        status: "pending",
-        pageCount: pages,
-        createdAt: new Date(),
-      });
+    const oldConversionJobs = await db
+      .collection("printJobs")
+      .where("userId", "==", userId)
+      .where("status", "==", "pending_conversion")
+      .get();
+    for (let doc of oldConversionJobs.docs) {
+      await doc.ref.delete();
     }
 
-    const amount = Number((totalPages * 2.3).toFixed(2));
-    res.json({ totalPages, amount });
+    const uploadPromises = req.files.map(async (file) => {
+      const fileName = `files/${Date.now()}_${Math.random().toString(36).slice(2)}_${file.originalname}`;
+      const fileUpload = bucket.file(fileName);
+      await fileUpload.save(file.buffer);
+
+      await db.collection("printJobs").add({
+        userId,
+        sourceFileName: file.originalname,
+        fileUrl: `gs://${bucket.name}/${fileName}`,
+        status: "pending_conversion",
+        createdAt: new Date(),
+      });
+    });
+
+    await Promise.all(uploadPromises);
+
+    const estimatedPages = req.files.length * 5;
+    const estimatedAmount = Number((estimatedPages * 2.3).toFixed(2));
+
+    return res.json({
+      message: "Files queued for processing",
+      filesUploaded: req.files.length,
+      estimatedPages,
+      estimatedAmount,
+      status: "processing",
+    });
   } catch (err) {
     console.error(err);
     res.status(500).send("Upload failed");
+  }
+});
+
+app.post("/internal/process-conversions", async (_req, res) => {
+  try {
+    const snapshot = await db
+      .collection("printJobs")
+      .where("status", "==", "pending_conversion")
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return res.json({ processed: 0, message: "No pending conversions" });
+    }
+
+    const jobDoc = snapshot.docs[0];
+    const jobData = jobDoc.data();
+
+    try {
+      const sourceFilePath = jobData.fileUrl.split(`${bucket.name}/`)[1];
+      const sourceFile = bucket.file(sourceFilePath);
+      const [fileBuffer] = await withTimeout(sourceFile.download(), 30000, "File download");
+
+      const { pdfBuffer, outputFileName } = await withTimeout(
+        convertFileToPdf({ originalname: jobData.sourceFileName, buffer: fileBuffer }),
+        60000,
+        "PDF conversion"
+      );
+
+      const pageCount = await getPageCount(pdfBuffer);
+      const convertedFileName = `converted/${Date.now()}_${jobDoc.id}.pdf`;
+      const convertedFile = bucket.file(convertedFileName);
+      await convertedFile.save(pdfBuffer);
+
+      await jobDoc.ref.update({
+        fileName: outputFileName,
+        pageCount,
+        fileUrl: `gs://${bucket.name}/${convertedFileName}`,
+        status: "pending",
+        conversionCompletedAt: new Date(),
+      });
+
+      return res.json({ processed: 1, jobId: jobDoc.id, pageCount });
+    } catch (conversionErr) {
+      await jobDoc.ref.update({
+        status: "conversion_failed",
+        conversionError: conversionErr.message,
+        failedAt: new Date(),
+      });
+      return res.status(500).json({ processed: 0, error: "Conversion failed" });
+    }
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to process conversions" });
   }
 });
 
@@ -916,17 +1046,45 @@ app.post("/kiosk/print", async (req, res) => {
       });
     }
 
-    const pdfBuffer = await downloadJobPdf(jobData);
+    let pdfBuffer = getCachedJobPdf(String(pin));
+
+    if (!pdfBuffer) {
+      try {
+        pdfBuffer = await withTimeout(downloadJobPdf(jobData), 5000, "PDF download");
+        cacheJobPdf(String(pin), pdfBuffer);
+      } catch (downloadErr) {
+        await doc.ref.update({ status: "paid", printerStatus: "ready" });
+        return res.status(503).json({
+          error: "System busy. Please retry.",
+          retryAfter: 10,
+          details: downloadErr.message,
+        });
+      }
+    }
 
     const formData = new FormData();
     const blob = new Blob([pdfBuffer], { type: "application/pdf" });
     formData.append("file", blob, jobData.fileName || `print-${pin}.pdf`);
     formData.append("pin", String(pin));
 
-    const printResponse = await fetch(FASTAPI_PRINT_URL, {
-      method: "POST",
-      body: formData,
-    });
+    let printResponse;
+    try {
+      printResponse = await withTimeout(
+        fetch(FASTAPI_PRINT_URL, {
+          method: "POST",
+          body: formData,
+        }),
+        8000,
+        "Printer dispatch"
+      );
+    } catch (printErr) {
+      await doc.ref.update({ status: "paid", printerStatus: "ready" });
+      return res.status(503).json({
+        error: "Printer is busy. Please retry.",
+        retryAfter: 5,
+        details: printErr.message,
+      });
+    }
 
     const printerResponse = await printResponse.text();
 
