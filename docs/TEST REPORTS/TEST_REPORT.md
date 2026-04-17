@@ -1,5 +1,9 @@
 # 📋 Final Test Report & Deployment Readiness
 
+## Latest Addendum
+
+- [Stabilization Fixes Report (2026-04-17)](./STABILIZATION_FIXES_REPORT_2026-04-17.md)
+
 **Date**: April 17, 2026  
 **Test Run #**: 1  
 **Backend Commit**: `9ed2214` (with auto-process fix + max load tests)  
