@@ -50,6 +50,18 @@ During payment processing and concurrent kiosk prints, the backend:
 
 ## Impact Projections
 
+### Time Taken: Before vs After Optimization
+
+| Flow | Before Optimization | After Optimization | Improvement |
+|------|----------------------|--------------------|-------------|
+| Upload request completion | 5-15 seconds | <500 ms | ~90-97% faster |
+| PIN→Print (single user, cold path) | 3-8 seconds | ~2-5 seconds | ~35-60% faster |
+| PIN→Print (single user, cache hit) | 3-8 seconds | <1 second | ~67-88% faster |
+| PIN→Print (5 concurrent requests) | 20-45 seconds | 5-12 seconds | ~60-75% faster |
+| API health checks (`/`, `/health`) | Not tracked previously | ~8-10 ms warm (smoke test) | Baseline established |
+
+> Note: "After" values combine measured smoke-test results and production-target estimates for concurrent print scenarios.
+
 ### Before Optimization
 | Metric | Value |
 |--------|-------|
