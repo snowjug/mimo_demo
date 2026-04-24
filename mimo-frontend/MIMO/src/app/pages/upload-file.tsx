@@ -262,35 +262,12 @@ export function UploadFile() {
   return (
     <div className="min-h-[100dvh] w-full bg-slate-50/50 p-2 sm:p-4">
       <div className="mx-auto max-w-5xl space-y-4 sm:space-y-6">
-
-        {/* Global Styles for Custom Fonts */}
-        <style>
-          {`
-            @import url('https://fonts.googleapis.com/css2?family=Caveat+Brush&family=Outfit:wght@400;500;600&family=Chewy&family=Pacifico&display=swap');
-            
-            @keyframes float-hey {
-              0%, 100% { transform: rotate(-10deg) translateY(0px); }
-              50% { transform: rotate(-3deg) translateY(-8px); }
-            }
-          `}
-        </style>
-
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col items-start cursor-pointer group select-none ml-2 pt-2">
-            <div className="z-20 -mb-2 relative animate-[float-hey_3s_ease-in-out_infinite] hover:rotate-0 hover:scale-[1.15] transition-all duration-300">
-              <span
-                className="text-[3.5rem] sm:text-[6rem] bg-clip-text text-transparent bg-gradient-to-tr from-[#093765] via-blue-600 to-[#a855f7] leading-none drop-shadow-[0_8px_8px_rgba(9,55,101,0.4)] pr-2"
-                style={{ fontFamily: "'Chewy', cursive", letterSpacing: "1px" }}
-              >
-                HEY!
-              </span>
-            </div>
-            <h1
-              className="text-2xl sm:text-5xl font-normal text-gray-900 tracking-tight z-10 -mt-1"
-              style={{ fontFamily: "'Outfit', sans-serif" }}
-            >
-              {userName}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm uppercase tracking-[0.3em] text-slate-500">MIMO</p>
+            <h1 className="text-2xl sm:text-5xl font-semibold text-gray-900 tracking-tight">
+              Welcome, {userName}
             </h1>
           </div>
           <div className="flex items-center gap-1 sm:gap-3">

@@ -115,6 +115,8 @@ const sendApiSuccess = (res, payload, status = 200) => {
 
 const defaultPrintOptions = {
   copies: 1,
+  printMode: "a4_sheet",
+  pagesPerSheet: 1,
   colorMode: "bw",
   layout: "single",
   pageSelection: "all",
@@ -785,6 +787,9 @@ app.get("/mimo/coins", authenticateToken, async (req, res) => {
 app.post("/payment-success", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.userId;
+    const selectedPrintOptions = req.body?.printOptions && typeof req.body.printOptions === "object"
+      ? req.body.printOptions
+      : {};
     const paidAtMs = nowMs();
     const paidAtDate = new Date(paidAtMs);
 
@@ -826,6 +831,10 @@ app.post("/payment-success", authenticateToken, async (req, res) => {
         status: "paid",
         pin,
         printCode: pin,
+        printOptions: {
+          ...(existing.printOptions || defaultPrintOptions),
+          ...selectedPrintOptions,
+        },
         codeCreatedAt: paidAtDate,
         codeExpiresAt: expiresAt,
         isPrinted: false,

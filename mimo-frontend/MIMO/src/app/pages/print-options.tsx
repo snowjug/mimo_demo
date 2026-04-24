@@ -20,6 +20,8 @@ export function PrintOptions() {
   const navigate = useNavigate();
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [copies, setCopies] = useState(1);
+  const [printMode, setPrintMode] = useState("a4_sheet");
+  const [pagesPerSheet, setPagesPerSheet] = useState(1);
   const [colorMode, setColorMode] = useState("bw");
   const [doubleSided, setDoubleSided] = useState("single");
   const [pageSelection, setPageSelection] = useState("all");
@@ -59,6 +61,9 @@ export function PrintOptions() {
       ? Math.ceil(totalPages / 2)
       : totalPages;
 
+  const sheetsPerCopy = Math.max(1, Math.ceil(actualPages / pagesPerSheet));
+  const totalSheets = sheetsPerCopy * copies;
+
   // ✅ BACKEND PRICING FIX
   const backendAmount = backendSummary?.amount || Number((totalPages * 2.3).toFixed(2));
 
@@ -78,12 +83,15 @@ export function PrintOptions() {
       "printOptions",
       JSON.stringify({
         copies,
+        printMode,
+        pagesPerSheet,
         colorMode,
         doubleSided,
         pageSelection,
         pageRange,
         orientation,
         totalPages: actualPages * copies,
+        totalSheets,
         totalCost,
       })
     );
@@ -138,6 +146,38 @@ export function PrintOptions() {
               </div>
             </Card>
 
+            {/* Output Type */}
+            <Card className="border-0 shadow-sm bg-white/80 backdrop-blur p-4 space-y-3">
+              <div>
+                <p className="text-sm font-bold text-slate-800">Output Type</p>
+                <p className="text-xs text-slate-500">Choose the print style for this job</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { value: "a4_sheet", label: "A4 Sheet", description: "Standard sheet printing" },
+                  { value: "mimo_graph", label: "Mimo Graph", description: "Graph paper style" },
+                ].map((option) => {
+                  const isActive = printMode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setPrintMode(option.value)}
+                      className={`rounded-2xl border p-4 text-left transition-all ${isActive ? "border-[#093765] bg-[#093765] text-white shadow-lg" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`}
+                    >
+                      <div className="text-sm font-bold">{option.label}</div>
+                      <div className={`text-xs mt-1 ${isActive ? "text-white/80" : "text-slate-500"}`}>
+                        {option.description}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-slate-500">
+                Mimo Graph is stored with the job and can be used for paid printing.
+              </p>
+            </Card>
+
             {/* Color */}
             <Card>
               <CardHeader>
@@ -154,11 +194,45 @@ export function PrintOptions() {
               </CardContent>
             </Card>
 
-            {/* Layout */}
+            {/* Pages Per Sheet */}
+            <Card className="border-0 shadow-sm bg-white/80 backdrop-blur p-4 space-y-3">
+              <div>
+                <p className="text-sm font-bold text-slate-800">Layout</p>
+                <p className="text-xs text-slate-500">Choose how many items appear on one sheet</p>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {[
+                  { value: 1, label: "1" },
+                  { value: 4, label: "4" },
+                  { value: 8, label: "8" },
+                ].map((option) => {
+                  const isActive = pagesPerSheet === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setPagesPerSheet(option.value)}
+                      className={`rounded-2xl border px-4 py-5 text-center transition-all ${isActive ? "border-[#093765] bg-[#093765] text-white shadow-lg" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"}`}
+                    >
+                      <div className="text-2xl font-black">{option.label}</div>
+                      <div className={`text-xs mt-1 ${isActive ? "text-white/80" : "text-slate-500"}`}>
+                        per page
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Sheets per copy</span>
+                <span className="font-semibold text-slate-700">{sheetsPerCopy}</span>
+              </div>
+            </Card>
+
+            {/* Sides */}
             <Card className="p-3">
-              <div className="flex justify-between">
-                <p>Print Layout</p>
-                <div>
+              <div className="flex justify-between items-center gap-3">
+                <p>Print Side</p>
+                <div className="flex gap-2">
                   <button onClick={() => setDoubleSided("single")}>1-Sided</button>
                   <button onClick={() => setDoubleSided("double")}>2-Sided</button>
                 </div>
@@ -203,11 +277,13 @@ export function PrintOptions() {
               <p>Documents: {files.length}</p>
               <p>Total Pages: {totalPages}</p>
               <p>Copies: {copies}</p>
+              <p>Mode: {printMode === "a4_sheet" ? "A4 Sheet" : "Mimo Graph"}</p>
+              <p>Layout: {pagesPerSheet} in a page</p>
 
               <hr className="my-3"/>
 
               <p>Price/Page: ₹{pricePerPage.toFixed(2)}</p>
-              <p>Total Sheets: {actualPages * copies}</p>
+              <p>Total Sheets: {totalSheets}</p>
 
               <hr className="my-3"/>
 

@@ -162,8 +162,12 @@ export function Payment() {
     const updateRes = await apiFetch("/payment-success", {
       method: "POST",
       headers: {
+        "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
+      body: JSON.stringify({
+        printOptions,
+      }),
     });
 
     const updateText = await updateRes.text();
@@ -271,8 +275,14 @@ console.log("Saving printCode:", updateData.printCode);
                   <>
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-slate-700 uppercase font-medium">Mode</span>
-                      <span className="font-bold text-slate-900 uppercase">{printOptions.colorMode === "bw" ? "B&W" : "Color"}</span>
+                        <span className="font-bold text-slate-900 uppercase">
+                          {printOptions.printMode === "mimo_graph" ? "Mimo Graph" : "A4 Sheet"}
+                        </span>
                     </div>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-slate-700 uppercase font-medium">Layout</span>
+                        <span className="font-bold text-slate-900 uppercase">{printOptions.pagesPerSheet || 1} in a page</span>
+                      </div>
                     <div className="flex justify-between items-center text-sm">
                       <span className="text-slate-700 uppercase font-medium">Copies</span>
                       <span className="font-bold text-slate-900">{printOptions.copies}x</span>
